@@ -61,7 +61,8 @@
     "messageTester": "Message Tester",
     "infrastructure": "Infrastructure",
     "plugins": "Plugins",
-    "logs": "Logs"
+    "logs": "Logs",
+    "bulkMessage": "Bulk Message"
   },
   "errorBoundary": {
     "title": "Something went wrong",
@@ -507,6 +508,32 @@
       "savedTitle": "Configuration Saved",
       "savedDesc": "Server restart required to apply changes.",
       "saveFailed": "Save Failed"
+    }
+  },
+  "bulkMessage": {
+    "title": "Bulk Messaging",
+    "subtitle": "Upload an Excel file (contact, msg) and send messages with delay",
+    "uploadFile": "Upload Excel File",
+    "selectSession": "Select Session",
+    "noSession": "No active sessions available",
+    "delayLabel": "Delay between messages (ms)",
+    "start": "Start Sending",
+    "stop": "Stop",
+    "pause": "Pause",
+    "resume": "Resume",
+    "status": "Status",
+    "progress": "Progress",
+    "completed": "Completed",
+    "failed": "Failed",
+    "pending": "Pending",
+    "columns": {
+      "contact": "Contact",
+      "msg": "Message",
+      "status": "Status"
+    },
+    "toasts": {
+      "invalidFile": "Invalid file. Must contain 'contact' and 'msg' columns",
+      "sendingComplete": "Bulk messaging completed"
     }
   }
 }
