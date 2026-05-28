@@ -290,6 +290,19 @@ export const messageApi = {
       method: 'POST',
       body: JSON.stringify({ chatId, url, filename }),
     }),
+  sendBulk: (sessionId: string, data: any) =>
+    request<any>(`/sessions/${sessionId}/messages/send-bulk`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  getBatchStatus: (sessionId: string, batchId: string) =>
+    request<any>(`/sessions/${sessionId}/messages/batch/${batchId}`, {
+      method: 'GET',
+    }),
+  cancelBatch: (sessionId: string, batchId: string) =>
+    request<any>(`/sessions/${sessionId}/messages/batch/${batchId}/cancel`, {
+      method: 'POST',
+    }),
 };
 
 // =============================================================================

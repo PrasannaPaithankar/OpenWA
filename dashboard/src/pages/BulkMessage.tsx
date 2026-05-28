@@ -16,6 +16,8 @@ interface MessageRow {
   msg: string;
   status: 'pending' | 'sending' | 'completed' | 'failed';
   error?: string;
+  mediaType?: string;
+  mediaUrl?: string;
 }
 
 export function BulkMessage() {
@@ -32,18 +34,63 @@ export function BulkMessage() {
   const [isSending, setIsSending] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [scheduledTime, setScheduledTime] = useState('');
+  const [isWaiting, setIsWaiting] = useState(false);
+  const [batchId, setBatchId] = useState<string | null>(null);
 
   const isSendingRef = useRef(isSending);
   const isPausedRef = useRef(isPaused);
   const rowsRef = useRef(rows);
   const delayRef = useRef(delay);
+  const waitingRef = useRef(isWaiting);
 
   useEffect(() => {
     isSendingRef.current = isSending;
     isPausedRef.current = isPaused;
     rowsRef.current = rows;
     delayRef.current = delay;
-  }, [isSending, isPaused, rows, delay]);
+    waitingRef.current = isWaiting;
+  }, [isSending, isPaused, rows, delay, isWaiting]);
+
+  // Wait for the scheduled time only if we want to show a UI countdown
+  // But since the backend handles waiting, we can just dispatch immediately
+  // and let the backend wait.
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+    if (batchId && isSending) {
+      interval = setInterval(async () => {
+        try {
+          const batch = await messageApi.getBatchStatus(session, batchId);
+          if (batch.progress) {
+            setProgress(Math.round((batch.progress.sent + batch.progress.failed) / batch.progress.total * 100));
+          }
+          
+          if (batch.results && batch.results.length > 0) {
+            setRows(prev => {
+              const next = [...prev];
+              batch.results.forEach((res: any, idx: number) => {
+                if (next[idx]) {
+                  next[idx].status = res.status === 'SENT' ? 'completed' : res.status === 'FAILED' ? 'failed' : 'pending';
+                  if (res.error) next[idx].error = res.error.message || 'Error';
+                }
+              });
+              return next;
+            });
+          }
+
+          if (batch.status === 'COMPLETED' || batch.status === 'FAILED' || batch.status === 'CANCELLED') {
+            setIsSending(false);
+            clearInterval(interval);
+            if (batch.status === 'COMPLETED') showSuccess(t('bulkMessage.toasts.sendingComplete'));
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }, 2000);
+    }
+    return () => clearInterval(interval);
+  }, [batchId, isSending, session, t, showSuccess]);
 
   useEffect(() => {
     if (sessions.length > 0 && !session) {
@@ -63,11 +110,13 @@ export function BulkMessage() {
     if (jsonData.length === 0) return;
 
     const parsedRows: MessageRow[] = jsonData
-      .filter(row => row.contact && row.msg)
+      .filter(row => row.contact && (row.msg || row.mediaUrl))
       .map((row, index) => ({
         id: index,
         contact: String(row.contact).replace(/[^0-9]/g, ''),
-        msg: String(row.msg),
+        msg: row.msg ? String(row.msg) : '',
+        mediaType: row.mediaType ? String(row.mediaType).toLowerCase() : undefined,
+        mediaUrl: row.mediaUrl ? String(row.mediaUrl) : undefined,
         status: 'pending'
       }));
 
@@ -80,69 +129,63 @@ export function BulkMessage() {
     setProgress(0);
     setIsSending(false);
     setIsPaused(false);
+    setIsWaiting(false);
+    setBatchId(null);
   };
 
-  const processQueue = async () => {
-    if (!session) return;
-    
-    let currentIdx = rowsRef.current.findIndex(r => r.status === 'pending');
-    
-    while (currentIdx !== -1 && isSendingRef.current) {
-      if (isPausedRef.current) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        continue;
-      }
-
-      const currentRow = rowsRef.current[currentIdx];
-      
-      setRows(prev => prev.map(r => r.id === currentRow.id ? { ...r, status: 'sending' } : r));
-      
-      try {
-        const chatId = currentRow.contact + '@c.us';
-        await messageApi.sendText(session, chatId, currentRow.msg);
-        setRows(prev => prev.map(r => r.id === currentRow.id ? { ...r, status: 'completed' } : r));
-      } catch (err) {
-        setRows(prev => prev.map(r => r.id === currentRow.id ? { ...r, status: 'failed', error: err instanceof Error ? err.message : 'Unknown error' } : r));
-      }
-      
-      setProgress(Math.round(((currentIdx + 1) / rowsRef.current.length) * 100));
-
-      if (currentIdx < rowsRef.current.length - 1 && isSendingRef.current && !isPausedRef.current) {
-        await new Promise(resolve => setTimeout(resolve, delayRef.current));
-      }
-      
-      currentIdx = rowsRef.current.findIndex(r => r.status === 'pending');
-    }
-
-    if (currentIdx === -1 && isSendingRef.current) {
-      setIsSending(false);
-      showSuccess(t('bulkMessage.toasts.sendingComplete'));
-    }
-  };
-
-  const startSending = () => {
+  const startSending = async () => {
     if (!session || rows.length === 0) return;
+    
     setIsSending(true);
     setIsPaused(false);
-    // Let state update before starting the loop
-    setTimeout(() => {
-      isSendingRef.current = true;
-      isPausedRef.current = false;
-      processQueue();
-    }, 100);
+    
+    const messages = rows.map(r => {
+      const type = r.mediaType || 'text';
+      const content: any = {};
+      if (type === 'text') {
+        content.text = r.msg;
+      } else {
+        content[type] = { url: r.mediaUrl };
+        if (r.msg) content.caption = r.msg;
+      }
+      return { chatId: r.contact + '@c.us', type, content };
+    });
+
+    const options: any = { delayBetweenMessages: delay, stopOnError: false };
+    if (scheduledTime) {
+      options.scheduledAt = new Date(scheduledTime).toISOString();
+    }
+
+    try {
+      const res = await messageApi.sendBulk(session, { messages, options });
+      setBatchId(res.batchId);
+      showSuccess(`Dispatched to backend! You can safely close this tab.`);
+    } catch (e) {
+      showError('Failed to dispatch bulk messages');
+      setIsSending(false);
+    }
   };
 
   const pauseSending = () => setIsPaused(true);
   const resumeSending = () => setIsPaused(false);
-  const stopSending = () => {
+  const stopSending = async () => {
     setIsSending(false);
     setIsPaused(false);
+    setIsWaiting(false);
+    if (batchId) {
+      try {
+        await messageApi.cancelBatch(session, batchId);
+        showSuccess('Batch cancelled on server');
+      } catch (e) {}
+    }
   };
   const resetQueue = () => {
     setRows(prev => prev.map(r => ({ ...r, status: 'pending', error: undefined })));
     setProgress(0);
     setIsSending(false);
     setIsPaused(false);
+    setIsWaiting(false);
+    setBatchId(null);
   };
 
   const completedCount = rows.filter(r => r.status === 'completed').length;
@@ -195,6 +238,17 @@ export function BulkMessage() {
             />
           </div>
 
+          <div className="form-group">
+            <label>Scheduled Start Time</label>
+            <input 
+              type="datetime-local" 
+              value={scheduledTime} 
+              onChange={e => setScheduledTime(e.target.value)} 
+              disabled={isSending}
+            />
+            <span className="hint" style={{ fontSize: '0.8rem', color: '#666', marginTop: '4px', display: 'block' }}>Leave empty to start immediately</span>
+          </div>
+
           <div className="action-buttons">
             {!isSending ? (
               <button 
@@ -217,9 +271,9 @@ export function BulkMessage() {
             <button 
               className="btn-danger" 
               onClick={stopSending} 
-              disabled={!isSending}
+              disabled={!isSending && !batchId}
             >
-              <Square size={18} /> {t('bulkMessage.stop')}
+              <Square size={18} /> {batchId ? 'Cancel Batch' : t('bulkMessage.stop')}
             </button>
             
             <button 
@@ -230,6 +284,12 @@ export function BulkMessage() {
               <RotateCcw size={18} /> Reset
             </button>
           </div>
+
+          {batchId && isSending && progress === 0 && scheduledTime && (
+            <div className="info-box" style={{ marginTop: '16px', padding: '10px', background: '#FEF3C7', color: '#B45309', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span>Batch dispatched. Waiting for scheduled time... (You can close this tab)</span>
+            </div>
+          )}
 
           {rows.length > 0 && (
             <div className="progress-section">

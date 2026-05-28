@@ -11,6 +11,7 @@ import {
   ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { IsObject } from 'class-validator';
 
 class BulkMessageContentDto {
   @ApiPropertyOptional({ description: 'Text content for text messages' })
@@ -19,15 +20,23 @@ class BulkMessageContentDto {
   text?: string;
 
   @ApiPropertyOptional({ description: 'Image URL or base64' })
+  @IsOptional()
+  @IsObject()
   image?: { url?: string; base64?: string; mimetype?: string };
 
   @ApiPropertyOptional({ description: 'Video URL or base64' })
+  @IsOptional()
+  @IsObject()
   video?: { url?: string; base64?: string; mimetype?: string };
 
   @ApiPropertyOptional({ description: 'Audio URL or base64' })
+  @IsOptional()
+  @IsObject()
   audio?: { url?: string; base64?: string; mimetype?: string };
 
   @ApiPropertyOptional({ description: 'Document URL or base64' })
+  @IsOptional()
+  @IsObject()
   document?: { url?: string; base64?: string; mimetype?: string; filename?: string };
 
   @ApiPropertyOptional({ description: 'Caption for media messages' })
@@ -72,6 +81,11 @@ class BulkMessageOptionsDto {
   @IsOptional()
   @IsBoolean()
   stopOnError?: boolean;
+
+  @ApiPropertyOptional({ description: 'Scheduled start time (ISO string or timestamp)' })
+  @IsOptional()
+  @IsString()
+  scheduledAt?: string;
 }
 
 export class SendBulkMessageDto {

@@ -59,6 +59,7 @@
     "webhooks": "Webhooks",
     "apiKeys": "API Keys",
     "messageTester": "Message Tester",
+    "scheduleMessage": "Schedule Message",
     "infrastructure": "Infrastructure",
     "plugins": "Plugins",
     "logs": "Logs",

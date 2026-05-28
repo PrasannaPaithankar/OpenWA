@@ -53,6 +53,7 @@ export class BulkMessageService {
       delayBetweenMessages: dto.options?.delayBetweenMessages ?? 3000,
       randomizeDelay: dto.options?.randomizeDelay ?? true,
       stopOnError: dto.options?.stopOnError ?? false,
+      scheduledAt: dto.options?.scheduledAt,
     };
 
     const progress: BatchProgress = {
@@ -145,6 +146,20 @@ export class BulkMessageService {
     }
 
     const results: BatchMessageResult[] = batch.results || [];
+
+    // Wait for scheduled time if provided
+    if (batch.options.scheduledAt) {
+      const targetTime = new Date(batch.options.scheduledAt).getTime();
+      this.logger.log(`Batch ${batch.batchId} scheduled for ${batch.options.scheduledAt}`);
+      
+      while (Date.now() < targetTime) {
+        if (!this.processingBatches.get(batch.id)) {
+          this.logger.log(`Batch ${batch.batchId} cancelled during scheduled wait`);
+          return;
+        }
+        await this.sleep(1000); // check every second
+      }
+    }
 
     for (let i = batch.currentIndex; i < batch.messages.length; i++) {
       // Check for cancellation
